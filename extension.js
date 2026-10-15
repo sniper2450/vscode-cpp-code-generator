@@ -27,6 +27,15 @@ function activate(context) {
         const comment = '// TODO: Your code here';
         const globalDeclarations = new Set();
 
+        const startPosition = editor.selection.active;
+        const currentLineText = editor.document.lineAt(startPosition.line).text;
+        const indentationMatch = currentLineText.match(/^\s*/);
+        
+        let indent = '';
+        if (indentationMatch) {
+            indent = indentationMatch;
+        }
+
         // Вспомогательная функция для поиска и извлечения переменных из строк ввода.
         // Пример: строка "int a > 5 && int b == 0" превратится в "a > 5 && b == 0",
         // а строки "int a;\n" и "int b;\n" будут сохранены в globalDeclarations для вынесения наверх.
@@ -38,7 +47,7 @@ function activate(context) {
             let match;
 
             while ((match = declRegex.exec(conditionText)) !== null) {
-                globalDeclarations.add(`${match[1]} ${match[2]};\n`);
+                globalDeclarations.add(`${match[1]} ${match[2]};`);
                 cleanCondition = cleanCondition.replace(match[0], match[2]);
             }
             return cleanCondition;
@@ -52,8 +61,11 @@ function activate(context) {
             if (condition === undefined) return; 
             
             const cleanCondition = parseInlineDeclarations(condition);
-            const prependedCode = Array.from(globalDeclarations).join('');
-            generatedCode = `${prependedCode}if (${cleanCondition}) {\n${comment}\n}`;
+            let prependedCode = '';
+            if (globalDeclarations.size > 0) {
+                prependedCode = Array.from(globalDeclarations).map(decl => indent + decl).join('\n') + '\n';
+            }
+            generatedCode = `${prependedCode}${indent}if (${cleanCondition}) {\n${indent}\t${comment}\n${indent}}`;
 
         } else if (blockType.label === 'for') {
             const varName = await vscode.window.showInputBox({
@@ -77,8 +89,11 @@ function activate(context) {
 
             const cleanStart = parseInlineDeclarations(start);
             const cleanEnd = parseInlineDeclarations(end);
-            const prependedCode = Array.from(globalDeclarations).join('');
-            generatedCode = `${prependedCode}for (int ${varName} = ${cleanStart}; ${varName} < ${cleanEnd}; ++${varName}) {\n${comment}\n}`;
+            let prependedCode = '';
+            if (globalDeclarations.size > 0) {
+                prependedCode = Array.from(globalDeclarations).map(decl => indent + decl).join('\n') + '\n';
+            }
+            generatedCode = `${prependedCode}${indent}for (int ${varName} = ${cleanStart}; ${varName} < ${cleanEnd}; ++${varName}) {\n${indent}\t${comment}\n${indent}}`;
 
         } else if (blockType.label === 'while') {
             const condition = await vscode.window.showInputBox({
@@ -88,16 +103,19 @@ function activate(context) {
             if (condition === undefined) return;
 
             const cleanCondition = parseInlineDeclarations(condition);
-            const prependedCode = Array.from(globalDeclarations).join('');
-            generatedCode = `${prependedCode}while (${cleanCondition}) {\n${comment}\n}`;
+            let prependedCode = '';
+            if (globalDeclarations.size > 0) {
+                prependedCode = Array.from(globalDeclarations).map(decl => indent + decl).join('\n') + '\n';
+            }
+            generatedCode = `${prependedCode}${indent}while (${cleanCondition}) {\n${indent}\t${comment}\n${indent}}`;
         }
 
-        const startPosition = editor.selection.active;
+        const lineStartPosition = new vscode.Position(startPosition.line, 0);
+    
         await editor.edit(editBuilder => {
-            editBuilder.insert(startPosition, generatedCode);
+            const rangeToDelete = new vscode.Range(lineStartPosition, startPosition);
+            editBuilder.replace(rangeToDelete, generatedCode);
         });
-
-        await vscode.commands.executeCommand('editor.action.formatDocument');
     });
 
     context.subscriptions.push(disposable);
